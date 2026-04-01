@@ -4,4 +4,232 @@ format: pdf
 editor: visual
 ---
 
-## Gov 51 PS3
+1.  Setup and Data Exploration
+    1.  1 Load Packages and Data
+
+```{r}
+library(tidyverse)
+library(glmnet)
+library(knitr)
+
+compas <- read_csv("data/raw/compas_clean.csv")
+
+```
+
+1.2 How many observations and variables are in the dataset? What is the unit of observation?
+
+There are 7214 observations and 17 variables in the dataset.
+
+\*\*Come back for the unit of observation
+
+1.3 Explain the outcome variable
+
+```{r}
+
+compas_recidivism <- compas |> 
+  filter(recidivism == 1) |> 
+  nrow()
+
+compas_recidivism
+
+compas_recidivism / 7214
+```
+
+The overall recidivism rate in the data is 45.065%
+
+This outcome is binary, which means that if someone was rearrested, they are a 1, and if they were not, they are a 0. There is no in between or continuous aspect, and this matters because when we are attempting to understand what a one unit increase of our outcome variable means, it is not a gradual increase will lead to more recidivism, but rather, if someone were to have the characteristics of the additional predictor variables, we would say that they are X more likely to be rearrested within two years. Otherwise, they are X likely not to be rearrested.
+
+1.4 Summary Statistics
+
+```{r}
+compas_stats <- tibble(
+  Variable = c("recidivism", "age", "female", "black", "hispanic", "asian", "other_race", "native_american",  "priors_count", "felony", "juv_fel_count", "juv_misd_count", "juv_other_count", "has_juv_felony", "has_juv_misd", "age_under_25", "age_25_45"), 
+  Mean = c(mean(compas$recidivism, na.rm = TRUE),
+           mean(compas$age, na.rm = TRUE),
+           mean(compas$female, na.rm = TRUE),
+           mean(compas$black, na.rm = TRUE),
+           mean(compas$hispanic, na.rm = TRUE),
+           mean(compas$asian, na.rm = TRUE),
+           mean(compas$other_race, na.rm = TRUE),
+           mean(compas$native_american, na.rm = TRUE),
+           mean(compas$priors_count, na.rm = TRUE),
+           mean(compas$felony, na.rm = TRUE),
+           mean(compas$juv_fel_count, na.rm = TRUE),
+           mean(compas$juv_misd_count, na.rm = TRUE),
+           mean(compas$juv_other_count, na.rm = TRUE),
+           mean(compas$has_juv_felony, na.rm = TRUE),
+           mean(compas$has_juv_misd, na.rm = TRUE),
+           mean(compas$age_under_25, na.rm = TRUE),
+           mean(compas$age_25_45, na.rm = TRUE)), 
+  SD = c(sd(compas$recidivism, na.rm = TRUE),
+         sd(compas$age, na.rm = TRUE), 
+         sd(compas$female, na.rm = TRUE), 
+         sd(compas$black, na.rm = TRUE), 
+         sd(compas$hispanic, na.rm = TRUE), 
+         sd(compas$asian, na.rm = TRUE), 
+         sd(compas$other_race, na.rm = TRUE), 
+         sd(compas$native_american, na.rm = TRUE), 
+         sd(compas$priors_count, na.rm = TRUE), 
+         sd(compas$felony, na.rm = TRUE), 
+         sd(compas$juv_fel_count, na.rm = TRUE), 
+         sd(compas$juv_misd_count, na.rm = TRUE), 
+         sd(compas$juv_other_count, na.rm = TRUE), 
+         sd(compas$has_juv_felony, na.rm = TRUE), 
+         sd(compas$has_juv_misd, na.rm = TRUE), 
+         sd(compas$age_under_25, na.rm = TRUE), 
+         sd(compas$age_25_45, na.rm = TRUE))) |> 
+     knitr::kable(caption = "Summary Statistics for Compas Recidivism Data", 
+               format = "latex", 
+               booktabs = TRUE, 
+               digits = 2)
+  
+  compas_stats
+```
+
+1.5 Explore key Predictors
+
+```{r}
+
+compas_plot_values <- compas |> 
+  mutate(priors_count = case_when(
+    priors_count == 0 ~ "1. 0", 
+    priors_count == c(1,2) ~ "2. 1-2", 
+    priors_count == c(3,4,5) ~ "3. 3-5", 
+    priors_count == c(6,7,8,9,10) ~ "4. 6-10", 
+    priors_count >=  11 ~ "5. 11+"
+  ))
+
+compas_plot <- ggplot(compas_plot_values, aes(x = priors_count, y = recidivism)) + 
+  geom_col() + 
+  labs(x = "Number of Prior Arrests",
+       y = "Rate of Recidivism",
+       title = " Rate of Recidivism for Varios Numbers of Prior Arrests")
+
+compas_plot
+```
+
+\*\*SHOULD I INCLUDE THE NAs?
+
+With an increase in number of arrests, people are less likely to be rearretsed, until you hit 11+ arrests and this is approximately the same rate to be rearrested as those who have 1-2 prior arrests.
+
+2.1 Train/test split
+
+```{r}
+set.seed(51)
+n <- nrow(compas)
+train_idx <- sample(1:n, size = floor(0.8 * n))
+train <- compas[train_idx, ]
+test <- compas[-train_idx, ]
+
+test
+```
+
+There are 5,771 observations in the train set, and 1,443 observations in the test set.
+
+2.2 Fit OLS with main effects only
+
+```{r}
+fit1 <- lm(recidivism ~ age + female + black + hispanic+ asian + other_race + native_american +  priors_count +  felony + juv_fel_count +  juv_misd_count +  juv_other_count + has_juv_felony + has_juv_misd +  age_under_25 + age_25_45, data = train)
+
+summary(fit1)
+```
+
+With each additional crime that someone commits, their likelihood of being rearrested increases by .029532. The variables that were stasttically significant were female, age, black, priors_count, felony. has_juv_misd, and age_25_45.
+
+2.3 In-Sample vs. out-of-sample RMSE
+
+```{r}
+ 
+prediction_train <- predict(fit1, newdata = train)
+
+rmse_train <- sqrt(mean((train$recidivism - prediction_train)^2))
+cat("Train RMSE:", rmse_train)
+
+prediction_test <- predict(fit1, newdata = test)
+
+rmse_test <- sqrt(mean((test$recidivism - prediction_test)^2))
+cat("Test RMSE:", rmse_test)
+```
+
+The gap between in sample and out of sample RMSE is .0016459. No, OLS is not overfitting with 16 predictors because this means that the train and test data both have very similar rmse to one another. The gap between the in-sample RMSE and the out-of-sample RMSE is 0.0016.
+
+2.4 Cross-Validation by hand
+
+```{r}
+#Assignment of the Folds 
+set.seed(51)
+folds <- sample(rep(1:5, length.out = nrow(train)))
+
+rmse_cv <- numeric(5)
+for (k in 1:5) {
+  train_k <- train[folds != k, ]
+  test_k <- train[folds == k, ]
+  model_k <- lm(recidivism ~ ., data = train_k)
+  pred_k <- predict(model_k, newdata = test_k)
+  rmse_cv[k] <- sqrt(mean((test_k$recidivism - pred_k)^2))
+}
+
+mean(rmse_cv)
+```
+
+a\) The 5-fold CV estimate of RMSE is 0.462. This is relatively close to our single-split out of sample RMSE because is it only .0002 away from our single-split estimate.
+
+\*\*\*b) Cross validation is more reliable than a single train/test split, because the repetitive behavior allows the data to be exposed to a variety of data, rather than simply overfit on one specific data set, which would give us highly trained but not predictive coefficients.
+
+c\) Cross-validation is the right tool for choosing the lambda because it is able to test different lambda on the data folds that it witholds, to find the best lambda that does not include too much variance or bias. If we did not use multiple data folds, then our regression would be susceptible to overfitting. Therefore, using cross-validation allows us to shrink the coefficients so that the model does not overfit.
+
+3.1 Build the expansion model
+
+```{r}
+# Full interaction formula
+f_full <- recidivism ~ (.)^2 +
+  I(age^2) + I(priors_count^2) +
+  I(juv_fel_count^2) + I(juv_misd_count^2) +
+  I(juv_other_count^2)
+# Create design matrices for glmnet 
+X_train <- model.matrix(f_full, data = train)[, -1]
+X_test <- model.matrix(f_full, data = test)[, -1]
+y_train <- train$recidivism
+y_test <- test$recidivism
+# How many features now?
+ncol(X_train)
+
+y_train
+```
+
+\*\*There are 141 predictors in this model now. There are now 40.93 of traning data per predictor now, when it has been 339.47 training data for every predictor.
+
+3.2 Fit OLS with all of the Variables
+
+```{r}
+ols_full <- lm(f_full, data = train)
+
+full_train_pred <- predict(ols_full_train, newdata = train)
+rmse_full_train <- sqrt(mean((train$recidivism - full_train_pred)^2))
+cat("In sample RMSE:", round(rmse_full_train, 4), "\n")
+
+full_test_pred <- predict(ols_full, newdata = test)
+rmse_full_test <- sqrt(mean((test$recidivism - full_test_pred)^2))
+cat("Out of sample RMSE:", round(rmse_full_test, 4), "\n")
+```
+
+The In-Sample RMSE for this model is .4485. On the other hand, the out of sample RMSE for this model is 0.4890. The difference between the two is 0.0405. This gap is much larger in comparison with the simple 19-predictors because that gap was only 0.0016. This is happening because now our data is overfitting to our train data and we are not using a different regression method that would utiloze a penalty term to make the train data a better predictor for the test data, not simply fitting for all of the high number of covariates.
+
+3.3 The overfitting lesson
+
+Adding 180 interaction terms made the in-sample fit better because the OLS regression will become increasingly representative of the data the more covariates you add, and reduce the in-sample RMSE. Therefore, the OLS regression will seek to match all of the nuances for each data point for all of your variables, and this is nor plausible because then when you seek to implement your new covariates to predict on the test data, your train data would have modified the covariates to perfectly match their data, but be too specific to the data. Therefore, it will make the out-of-sample predictions worse because the the model will learn the train data noise, rather than the relationships and patterns in the data. This phenomenon is called overfitting.
+
+4.1 Fit Ridge with Cross-Validation
+
+```{r}
+set.seed(51) # for reproducible CV folds
+cv_ridge <- cv.glmnet(X_train, y_train, alpha = 0, nfolds = 10)
+
+cv_ridge
+
+plot(cv_ridge)
+```
+
+The optimal lambda selected by cross-validation is 0.0138. The plot shows that the mean squared error significantly decreases when lambda is increasing and MSE eventually becomes relatively constant, while all the variables are staying in the model, just being reduced by the penalty factor.
+
+4.2 Out of Sample Ridge RMSE
