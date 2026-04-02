@@ -18,9 +18,7 @@ compas <- read_csv("data/raw/compas_clean.csv")
 
 1.2 How many observations and variables are in the dataset? What is the unit of observation?
 
-There are 7214 observations and 17 variables in the dataset.
-
-\*\*Come back for the unit of observation
+There are 7214 observations and 17 variables in the dataset. The unit of observation is criminal defendant.
 
 1.3 Explain the outcome variable
 
@@ -93,9 +91,9 @@ compas_stats <- tibble(
 compas_plot_values <- compas |> 
   mutate(priors_count = case_when(
     priors_count == 0 ~ "1. 0", 
-    priors_count == c(1,2) ~ "2. 1-2", 
-    priors_count == c(3,4,5) ~ "3. 3-5", 
-    priors_count == c(6,7,8,9,10) ~ "4. 6-10", 
+    priors_count %in% c(1,2) ~ "2. 1-2", 
+    priors_count %in% c(3,4,5) ~ "3. 3-5", 
+    priors_count %in% c(6,7,8,9,10) ~ "4. 6-10", 
     priors_count >=  11 ~ "5. 11+"
   ))
 
@@ -107,8 +105,6 @@ compas_plot <- ggplot(compas_plot_values, aes(x = priors_count, y = recidivism))
 
 compas_plot
 ```
-
-\*\*SHOULD I INCLUDE THE NAs?
 
 With an increase in number of arrests, people are less likely to be rearretsed, until you hit 11+ arrests and this is approximately the same rate to be rearrested as those who have 1-2 prior arrests.
 
@@ -174,7 +170,7 @@ mean(rmse_cv)
 
 a\) The 5-fold CV estimate of RMSE is 0.462. This is relatively close to our single-split out of sample RMSE because is it only .0002 away from our single-split estimate.
 
-\*\*\*b) Cross validation is more reliable than a single train/test split, because the repetitive behavior allows the data to be exposed to a variety of data, rather than simply overfit on one specific data set, which would give us highly trained but not predictive coefficients.
+b\) Cross validation is more reliable than a single train/test split, because the repetitive behavior allows the data to be exposed to a variety of data, rather than simply overfit on one specific data set, which would give us highly trained but not predictive coefficients. Train and Test split sometimes make it
 
 c\) Cross-validation is the right tool for choosing the lambda because it is able to test different lambda on the data folds that it witholds, to find the best lambda that does not include too much variance or bias. If we did not use multiple data folds, then our regression would be susceptible to overfitting. Therefore, using cross-validation allows us to shrink the coefficients so that the model does not overfit.
 
@@ -194,7 +190,7 @@ y_test <- test$recidivism
 # How many features now?
 ncol(X_train)
 
-y_train
+#y_train
 ```
 
 \*\*There are 141 predictors in this model now. There are now 40.93 of traning data per predictor now, when it has been 339.47 training data for every predictor.
@@ -204,7 +200,7 @@ y_train
 ```{r}
 ols_full <- lm(f_full, data = train)
 
-full_train_pred <- predict(ols_full_train, newdata = train)
+full_train_pred <- predict(ols_full, newdata = train)
 rmse_full_train <- sqrt(mean((train$recidivism - full_train_pred)^2))
 cat("In sample RMSE:", round(rmse_full_train, 4), "\n")
 
@@ -230,6 +226,148 @@ cv_ridge
 plot(cv_ridge)
 ```
 
-The optimal lambda selected by cross-validation is 0.0138. The plot shows that the mean squared error significantly decreases when lambda is increasing and MSE eventually becomes relatively constant, while all the variables are staying in the model, just being reduced by the penalty factor.
+The optimal lambda selected by cross-validation is 0.0138. The plot shows that the mean squared error significantly decreases when lambda is decreasing and MSE eventually becomes relatively constant, while all the variables are staying in the model, just being reduced by the penalty factor.
 
 4.2 Out of Sample Ridge RMSE
+
+```{r}
+
+ridge_prediction <- predict(cv_ridge, newx = X_test, s = "lambda.min")
+
+rmse_ridge <- sqrt(mean((y_test - ridge_prediction)^2))
+cat("Ridge Out of sample RMSE:", round(rmse_ridge, 4), "\n")
+```
+
+The out of ample RMSE for Ridge is 0.47. This is the slightly lower than kitchen sink out of sample RMSE, .0489, while the original simple OLS RMSE was .4622. The RMSE was not as large as the overfit kitchen sink, while the simple OLS is the best estimate at minimizing the residuals. Therefore, Ridge is a worse model than OLS at minimizing these things. But although ridge is not the best, it significantly reduces the overfitting that we saw with the kicthen sink by shrinking the coefficients based on the penalty and chosen lambda. When you have too many variables, the MSE is too high, which signals that we are overfitting. That is why we reduce the number of variables until we reach a point where the mean squared error is minimized, and this is the lambda min. As you move from the right to the left you are increasing the penalty which continues to shrink the coefficients for the variables, until we reach 27 variables where we get the lowest cross validation error.
+
+4.3 Did Ridge set any coefficients to zero?
+
+```{r}
+coef(cv_ridge, s = "lambda.min")
+```
+
+No, ridge did not eliminate any variables. LASSO is the regression that eliminate variables. In fact, all that RIDGE executes is that it includes a penalty term that reduces the size of the coefficients as a way to reduce its overfitting; however, it does not weigh if some variables are similar and contribute very little (like LASSO does) and therefore can be dropped. Therefore, RIDGE simply reduces them close to 0, but never eliminates.
+
+5.1 Fit LASSO with cross-validation
+
+```{r}
+set.seed(51)
+cv_lasso <- cv.glmnet(X_train, y_train, alpha = 1, nfolds = 10)
+
+cv_lasso 
+plot(cv_lasso)
+```
+
+The optimal lambda is 0.007694.
+
+5.2 LASSO Variable Selection
+
+```{r}
+coef(cv_lasso, s = "lambda.min")
+```
+
+a\) Only 27 variables survived. That means of the 141, 114 were eliminated.
+
+b\) Some of the surviving interactions age, female, priors_count, priors_count: age_under_25, and priors_count: age_25_45. These make substantive sense because it is focusing on patterns for those who have had prior arrests, which were main aspects that were kept in the regression. Age and gender also make sense because as discussed in class, men are more likely to recommit a crime than women, and your age at arrests
+
+c\) LASSO reduces subjective discretion because what Baker describes is that people are able to choose what variables they want to use, how they are going to select, and manipulate the data in order to best suite their needed outcome. However, LASSO eliminates this middle man by using the best possible lambda in order to reduce the penalize the coefficients and eliminate ones that are not really contributing to the outcome. This is seen by the elimination of a majority of variables that according to LASSO are not really necessary, or actually working to the benefit of the prediction. (automates)
+
+5.3 LASSO RMSE
+
+```{r}
+
+lasso_pred <- predict(cv_lasso, newx = X_test, s = "lambda.min")
+
+rmse_lasso <- sqrt(mean((y_test - lasso_pred)^2))
+cat("LASSO out of sample RMSE:", round(rmse_lasso, 4), "\n")
+```
+
+The out of sample RMSE for LASSO is 0.4593. This is slighlty smaller than the Ridge OLS by about 0.1. It is about 0.03 smaller than the kitchen sink OLS, and it is about .003 smaller than the simple OLS RMSE.,
+
+6.1 Elastic Net
+
+```{r}
+set.seed(51)
+cv_enet <- cv.glmnet(X_train, y_train, alpha = 0.5, nfolds = 10)
+
+enet_pred <- predict(cv_enet, newx = X_test, s = "lambda.min")
+
+rmse_enet <- sqrt(mean((y_test - enet_pred)^2))
+cat("Elatic Net out of sample RMSE:", round(rmse_enet, 4), "\n")
+
+coef(cv_enet, s = "lambda.min")
+```
+
+The elastic net out of sample RMSE is 0.4583. It retained 43 variables.
+
+6.2 The Big Comparison Table
+
+```{r}
+comparison_table <- data.frame(
+  Model = c( "OLS (main effects, 16 vars)", 
+             "OLS (kitchen sink, ~141 vars)", 
+             "Ridge", 
+             "LASSO", 
+             "Elastic Net"), 
+  Predictors = c(16, 141, 141, 27, 43), 
+  Out_of_Sample_RMSE = c(0.4622, 0.4890, 0.47, 0.4593, 0.4583)
+)
+
+kable(comparison_table, 
+      format = "latex", 
+      booktabs = TRUE,
+      col.names = c(" Model", "Predictors", "Out-Of-Sample RMSE"), digits = 4, )
+```
+
+\*\*ARE WE TALKING ABOUT NUMBER OF PREDICTORS?
+
+a\) The elastic net has the lowest out of sample RMSE at 0.4583.
+
+b\) The model that has the best in-sample fit was OLS kitchen sink. This is not the sample model with the lowest out of sample RMSE.
+
+c\) This table teaches us that as when we don't have any bias we can have overfitting and a higher RMSE. Therefore, when we begin to introduce bias this lowers our RMSE. However, LASSO which introduces bias but eliminates certain variables, is not as good enough as Elastic Net which is a mixture of RIDGE and LASSO by both reducing the coefficients and eliminating some, but not as many as LASSO.
+
+6.3 Baker article connection
+
+a\) LASSO helped narrow the disagreement between duelinge experts because it eliminated either one of them choosing which firms they wanted to include in their data or not. Rather, they fed the firms to LASSO which only kept five firms that it deemed important to the predictive power. Therefore, the dueling experts were unable to self-select and manipulate the data to respond to whatever outcome they needed to track. Instead, LASSO universalized the information and selected based on their influence on the predictability of Halliburton's returns.
+
+b\) The aspect of the OLS approach that has the most room for manipulation is the fact that you can choose which variables to include in the regression or not, which will impact your coefficients, your predictive values, and the way your regression graphs. As a result, this human selectivity, unlike LASSO where elimination occurs through a mathematical model, can lead to high levels of manipulation especially by expert witnesses who are looking to make the models fit their testimonies.
+
+6.4 Prediction vs. Explanation
+
+a\) No, the LASSO coefficient on priors_count does not answer a causal question because regressions are simply trying to see if there is a relationship or pattern demonstrated in the data that can help us see what the future will look like. LASSO is specifically looking at prediction accuracy, and if variabels that have high correlations and affect both having prior arrests and high recidivism, then these variables will amplify the relationship between arrestst and recidivism and make it look stronger. In reality, it would be confounding variables that are influencing this relationship. In addition, we cannot say just that because certain variables chosen by LASSO appear to have a strong relationship that they then are causal, we would have to have a randomized control trial to determine causality.
+
+b\) The difference between using regression for prediction is taking data at face value and determining the patterns in the data to predict what other data points may look like. We are not saying that just because we see a pattern between X and Y that X actually is the root cause of Y because if you look at a DAG there are other factors that may lead to them being correlated and not causal. In addition, you would need to conduct a randomized control trial to determine causality.
+
+```{r}
+
+test_race <- test |> 
+  mutate(predicted_prob = predict(fit1, newdata = test), 
+         race = case_when(
+           black ==1 ~ "black", 
+           hispanic ==1 ~"Hispanic", 
+           asian ==1 ~"Asian", 
+           other_race ==1 ~"Other",
+           native_american ==1 ~ "Native American", 
+           black ==0 & hispanic ==0 & asian ==0 & other_race ==0 & native_american ==0 ~"White"
+         )
+         ) |> 
+    group_by(race) |> 
+    summarize(mean_predicted_prob = mean(predicted_prob), 
+              actual_recidivism = mean(recidivism), n = n())
+
+test_race
+
+
+
+
+
+```
+
+The mean predicted recidivism probability is .51196 for black people and .37896 for white people. Yes there is a stark difference, and black people have a much higher rate than white people do.
+
+The actual recidivism rates for black people is greater than our mean predicted (0.521) and it is also bigger in reality for white people (.402).
+
+The tradeoff of usng prediction algorithms is it does not tell you an accurate representation of the data. Rather by introducing bias, the other forms of regression make it more predictive, but it does not tell us as accurate of the relationships between variables. Instead, as we see here the accuracy to match the reality of recidivism starkly decreases. This can become extremely difficult.
+
+LASSO just ditches one variable thata correlated
